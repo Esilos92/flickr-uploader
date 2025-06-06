@@ -1,9 +1,9 @@
 // index.js - Main handler compatible with your vercel.json
-import { createFlickr } from 'flickr-sdk';
-import { tmpdir } from 'os';
-import { join, parse } from 'path';
-import { writeFile, unlink } from 'fs/promises';
-import fetch from 'node-fetch';
+const { createFlickr } = require('flickr-sdk');
+const { tmpdir } = require('os');
+const { join, parse } = require('path');
+const { writeFile, unlink } = require('fs/promises');
+const fetch = require('node-fetch');
 
 // Initialize Flickr SDK
 const { flickr, upload } = createFlickr({
@@ -15,7 +15,8 @@ const { flickr, upload } = createFlickr({
 
 const userId = process.env.FLICKR_USER_ID;
 
-export default async function handler(req, res) {
+module.exports = handler;
+async function handler(req, res) {
   const { pathname } = new URL(req.url, `http://${req.headers.host}`);
 
   // Health check for GET requests to root
