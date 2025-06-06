@@ -82,10 +82,7 @@ async function uploadPhotoFromUrl(url, title, tags) {
   const request_data = {
     url: "https://up.flickr.com/services/upload/",
     method: "POST",
-    data: {
-      title,
-      tags,
-    },
+    data: {}, // <-- FIX: do NOT sign with form fields
   };
 
   const oauthHeaders = oauth.toHeader(
@@ -100,6 +97,7 @@ async function uploadPhotoFromUrl(url, title, tags) {
   const uploadResponse = await axios.post(request_data.url, form, {
     headers: fullHeaders,
   });
+
   const parsed = new URLSearchParams(uploadResponse.data);
   if (!parsed.get("photoid")) throw new Error("Upload failed");
   return parsed.get("photoid");
