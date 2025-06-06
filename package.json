@@ -1,21 +1,11 @@
 {
-  "name": "dropbox-flickr-transfer",
+  "name": "flickr-uploader",
   "version": "1.0.0",
-  "description": "Transfer files from Dropbox URLs to Flickr",
   "main": "index.js",
-  "scripts": {
-    "dev": "vercel dev",
-    "build": "echo 'No build step required'",
-    "start": "node index.js"
-  },
   "dependencies": {
-    "node-fetch": "^2.6.7",
     "flickr-sdk": "^7.0.0-beta.9"
   },
   "engines": {
     "node": "18.x"
-  },
-  "keywords": ["flickr", "dropbox", "upload", "vercel"],
-  "author": "",
-  "license": "MIT"
+  }
 }
