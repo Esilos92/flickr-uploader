@@ -5,7 +5,8 @@
       "src": "index.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["node_modules/**"]
+        "includeFiles": ["node_modules/**"],
+        "maxLambdaSize": "50mb"
       }
     }
   ],
@@ -16,9 +17,26 @@
       "dest": "/index.js"
     },
     {
+      "src": "/batch",
+      "methods": ["POST"],
+      "dest": "/index.js"
+    },
+    {
       "src": "/",
       "methods": ["GET"],
       "dest": "/index.js"
     }
-  ]
+  ],
+  "functions": {
+    "index.js": {
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "FLICKR_API_KEY": "@flickr-api-key",
+    "FLICKR_API_SECRET": "@flickr-api-secret",
+    "FLICKR_ACCESS_TOKEN": "@flickr-access-token",
+    "FLICKR_ACCESS_SECRET": "@flickr-access-secret",
+    "FLICKR_USER_ID": "@flickr-user-id"
+  }
 }
