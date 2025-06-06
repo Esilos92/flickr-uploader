@@ -1,74 +1,81 @@
-// index.js — Flickr SDK (beta) upload handler with album check and JSON response
+// index.js — Flickr SDK-based uploader with album checking
 
 import express from "express";
-import Flickr from "flickr-sdk";
+import { Flickr } from "flickr-sdk";
 import axios from "axios";
-import FormData from "form-data";
 import path from "path";
+import FormData from "form-data";
 
 const app = express();
 app.use(express.json());
 
-const flickr = new Flickr(Flickr.OAuth.createPlugin(
-  process.env.FLICKR_API_KEY,
-  process.env.FLICKR_API_SECRET,
-  process.env.FLICKR_ACCESS_TOKEN,
-  process.env.FLICKR_ACCESS_SECRET
-));
-
-app.get("/", (_, res) => {
+app.get("/", (req, res) => {
   res.send("✅ Flickr Upload API is running.");
 });
 
+const flickr = new Flickr(
+  Flickr.OAuth.createPlugin(
+    process.env.FLICKR_API_KEY,
+    process.env.FLICKR_API_SECRET,
+    process.env.FLICKR_ACCESS_TOKEN,
+    process.env.FLICKR_ACCESS_SECRET
+  )
+);
+
+async function getAlbumIdByTitle(title) {
+  const res = await flickr.photosets.getList({ user_id: "me" });
+  const albums = res.body.photosets.photoset;
+  const match = albums.find((a) => a.title._content === title);
+  return match ? match.id : null;
+}
+
+async function createAlbum(title, primaryPhotoId) {
+  const res = await flickr.photosets.create({
+    title,
+    primary_photo_id: primaryPhotoId,
+  });
+  return res.body.photoset.id;
+}
+
+async function uploadPhotoFromUrl(url, title, tags) {
+  const image = await axios.get(url, { responseType: "arraybuffer" });
+  const form = new FormData();
+  form.append("title", title);
+  form.append("tags", tags);
+  form.append("photo", image.data, { filename: title });
+
+  const headers = form.getHeaders();
+  const uploadUrl = "https://up.flickr.com/services/upload/";
+
+  const res = await axios.post(uploadUrl, form, {
+    headers,
+    auth: {
+      username: process.env.FLICKR_API_KEY,
+      password: process.env.FLICKR_API_SECRET,
+    },
+    params: {
+      oauth_consumer_key: process.env.FLICKR_API_KEY,
+      oauth_token: process.env.FLICKR_ACCESS_TOKEN,
+    },
+  });
+
+  const parsed = new URLSearchParams(res.data);
+  const photoId = parsed.get("photoid");
+  if (!photoId) throw new Error("Upload failed");
+  return photoId;
+}
+
 app.post("/upload", async (req, res) => {
-  const { albumTitle, imageUrls = [], tags = "" } = req.body;
-
-  if (!Array.isArray(imageUrls)) {
-    return res.status(400).json({ error: "imageUrls must be an array." });
-  }
-
+  const { albumTitle, imageUrls, tags } = req.body;
   try {
-    // Get existing photosets
-    const listResponse = await flickr.photosets.getList();
-    const existing = listResponse.body.photosets.photoset;
-    const album = existing.find(ps => ps.title._content === albumTitle);
-
-    let albumId = album?.id ?? null;
     const uploadedIds = [];
-
-    for (let i = 0; i < imageUrls.length; i++) {
-      const url = imageUrls[i];
-      const title = path.basename(url);
-
-      const imageResp = await axios.get(url, { responseType: "stream" });
-      const form = new FormData();
-      form.append("photo", imageResp.data);
-      form.append("title", title);
-      form.append("tags", tags);
-
-      const uploadResp = await flickr.upload(form);
-      const photoId = uploadResp.body.photoid._content;
-      uploadedIds.push(photoId);
-
-      if (!albumId && i === 0) {
-        const createResp = await flickr.photosets.create({
-          title: albumTitle,
-          primary_photo_id: photoId,
-        });
-        albumId = createResp.body.photoset.id;
-      } else if (albumId && i !== 0) {
-        await flickr.photosets.addPhoto({
-          photoset_id: albumId,
-          photo_id: photoId,
-        });
-      }
+    for (const imageUrl of imageUrls) {
+      const title = path.basename(imageUrl);
+      const id = await uploadPhotoFromUrl(imageUrl, title, tags);
+      uploadedIds.push(id);
     }
 
-    res.json({ success: true, albumId });
-  } catch (error) {
-    console.error("Upload error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-export default app;
+    let albumId = await getAlbumIdByTitle(albumTitle);
+    if (!albumId) {
+      albumId = await createAlbum(albumTitle, uploadedIds[0]);
+   
