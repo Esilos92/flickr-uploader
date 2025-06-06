@@ -1,4 +1,4 @@
-// index.js — SDK-free Flickr album check + upload
+// index.js — SDK-free Flickr album check + upload with homepage route
 
 import axios from "axios";
 import OAuth from "oauth-1.0a";
@@ -10,6 +10,10 @@ import express from "express";
 
 const app = express();
 app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.send("✅ Flickr Upload API is running.");
+});
 
 const flickrKey = process.env.FLICKR_API_KEY;
 const flickrSecret = process.env.FLICKR_API_SECRET;
