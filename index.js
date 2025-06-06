@@ -7,12 +7,12 @@ import { writeFile } from "fs/promises";
 import { unlink } from "fs/promises";
 
 // Flickr credentials (replace with your actual secrets)
-const flickrAuth = {
+const { upload, flickr } = createFlickr({
   consumerKey: process.env.FLICKR_API_KEY,
   consumerSecret: process.env.FLICKR_API_SECRET,
-  oauthToken: process.env.FLICKR_OAUTH_TOKEN,
-  oauthTokenSecret: process.env.FLICKR_OAUTH_TOKEN_SECRET,
-};
+  oauthToken: process.env.FLICKR_ACCESS_TOKEN,
+  oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET
+});
 
 const userId = process.env.FLICKR_USER_ID;
 
@@ -54,7 +54,8 @@ async function uploadPhotoFromUrl(imageUrl, title, albumTitle) {
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
-  const tempFilePath = join(tmpdir(), title);
+  const fileName = title.endsWith(".jpg") ? title : `${title}.jpg`;
+  const tempFilePath = join(tmpdir(), fileName);
   await writeFile(tempFilePath, buffer);
 
   try {
