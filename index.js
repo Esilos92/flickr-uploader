@@ -1,68 +1,86 @@
-import Flickr from 'flickr-sdk';
+import express from 'express';
 import axios from 'axios';
+import FormData from 'form-data';
+import Flickr from 'flickr-sdk';
 
-const flickr = new Flickr(
-  Flickr.OAuth.createPlugin(
-    process.env.FLICKR_API_KEY,
-    process.env.FLICKR_API_SECRET,
-    process.env.FLICKR_ACCESS_TOKEN,
-    process.env.FLICKR_ACCESS_SECRET
-  )
-);
+const app = express();
+app.use(express.json());
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
+// Load Flickr OAuth plugin
+const flickr = new Flickr(Flickr.OAuth.createPlugin(
+  process.env.FLICKR_API_KEY,
+  process.env.FLICKR_API_SECRET,
+  process.env.FLICKR_ACCESS_TOKEN,
+  process.env.FLICKR_ACCESS_SECRET
+));
+
+// Route to handle uploads
+app.post('/upload', async (req, res) => {
+  const { dropboxUrl, title = '', description = '', albumTitle = '' } = req.body;
+
+  if (!dropboxUrl || !albumTitle) {
+    return res.status(400).json({ error: 'Missing dropboxUrl or albumTitle' });
   }
-
-  const { dropboxUrl, title, description, eventName, albumName } = req.body;
-
-  if (!dropboxUrl || !title || !eventName || !albumName) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-
-  const fullAlbumTitle = `${eventName} – ${albumName}`;
 
   try {
-    // Check if album already exists
-    const { body: { photosets } } = await flickr.photosets.getList();
-    const existingAlbum = photosets.photoset.find(
-      (set) => set.title._content === fullAlbumTitle
-    );
+    // Fetch image data from Dropbox shared link
+    const imageResponse = await axios.get(dropboxUrl, { responseType: 'stream' });
 
-    let albumId = existingAlbum ? existingAlbum.id : null;
+    // Prepare form data for Flickr upload
+    const form = new FormData();
+    form.append('photo', imageResponse.data, { filename: 'upload.jpg' });
+    form.append('title', title);
+    form.append('description', description);
+    form.append('is_public', '0'); // always private
 
-    // Download image
-    const image = await axios.get(dropboxUrl, { responseType: 'stream' });
+    // Upload photo to Flickr
+    const uploadResponse = await flickr.upload(form);
 
-    // Upload photo
-    const uploadRes = await flickr.upload({
-      title,
-      description,
-      is_public: 0,
-      photo: image.data,
-    });
+    const photoId = uploadResponse.body.photoid._content;
 
-    const photoId = uploadRes.body.photoid._content;
+    // Check for existing album
+    let albumId;
+    const albums = await flickr.photosets.getList({ user_id: 'me' });
+    const match = albums.body.photosets.photoset.find(ps => ps.title._content === albumTitle);
 
-    // If album does not exist, create it
-    if (!albumId) {
-      const createAlbumRes = await flickr.photosets.create({
-        title: fullAlbumTitle,
-        description: `Auto-created album for ${fullAlbumTitle}`,
-        primary_photo_id: photoId,
-      });
-      albumId = createAlbumRes.body.photoset.id;
+    if (match) {
+      albumId = match.id;
     } else {
-      // Add photo to existing album
+      // Create new album with first photo
+      const album = await flickr.photosets.create({
+        title: albumTitle,
+        primary_photo_id: photoId
+      });
+      albumId = album.body.photoset.id;
+    }
+
+    // Add photo to album (if not already primary)
+    if (!match) {
+      // Already added during creation
+    } else {
       await flickr.photosets.addPhoto({
         photoset_id: albumId,
-        photo_id: photoId,
+        photo_id: photoId
       });
     }
 
-    return res.status(200).json({ success: true, photoId, albumId });
+    return res.status(200).json({
+      success: true,
+      photoId,
+      albumId,
+      message: 'Upload complete and assigned to album'
+    });
+
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error('Upload failed:', err?.response?.data || err.message);
+    return res.status(500).json({
+      error: 'Upload failed',
+      detail: err?.response?.data || err.message
+    });
   }
-}
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Uploader running on port ${PORT}`);
+});
