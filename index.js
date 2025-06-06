@@ -1,12 +1,12 @@
 const express = require("express");
 const axios = require("axios");
+const crypto = require("crypto");
 const FormData = require("form-data");
 const Flickr = require("flickr-sdk");
 
 const app = express();
 app.use(express.json());
 
-// Correct auth method from current docs
 const { upload, photosets } = Flickr.createFlickr({
   consumerKey: process.env.FLICKR_API_KEY,
   consumerSecret: process.env.FLICKR_API_SECRET,
@@ -14,25 +14,44 @@ const { upload, photosets } = Flickr.createFlickr({
   oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET,
 });
 
-// Upload photo from URL
-async function uploadPhoto(photoUrl, title = "Untitled") {
+// Hash Dropbox URL for deduplication
+function hashUrl(url) {
+  return crypto.createHash("md5").update(url).digest("hex");
+}
+
+// Find an existing album by name
+async function getOrCreateAlbum(title) {
+  const albumList = await photosets.getList();
+  const match = albumList.body.photosets.photoset.find(
+    (a) => a.title._content === title
+  );
+  return match ? match.id : null;
+}
+
+// Upload photo and tag with machine tag
+async function uploadPhoto(photoUrl, title, urlHash) {
   const res = await axios.get(photoUrl, { responseType: "stream" });
+
+  const machineTag = `automation:urlhash=${urlHash}`;
 
   const uploadResponse = await upload({
     photo: res.data,
     title,
+    tags: machineTag,
   });
 
-  return uploadResponse.body.photoid._content;
+  return {
+    id: uploadResponse.body.photoid._content,
+    tag: machineTag,
+  };
 }
 
-// Create album
+// Create new album
 async function createAlbum(title, primaryPhotoId) {
   const response = await photosets.create({
     title,
     primary_photo_id: primaryPhotoId,
   });
-
   return response.body.photoset.id;
 }
 
@@ -44,6 +63,25 @@ async function addPhotoToAlbum(photosetId, photoId) {
   });
 }
 
+// Get all automation:urlhash tags from an album
+async function getAlbumTags(albumId) {
+  const photoList = await photosets.getPhotos({
+    photoset_id: albumId,
+    extras: "tags",
+  });
+
+  const tagsMap = new Map();
+  photoList.body.photoset.photo.forEach((p) => {
+    p.tags.split(" ").forEach((tag) => {
+      if (tag.startsWith("automation:urlhash=")) {
+        tagsMap.set(tag, true);
+      }
+    });
+  });
+
+  return tagsMap;
+}
+
 // Main upload endpoint
 app.post("/", async (req, res) => {
   try {
@@ -53,16 +91,35 @@ app.post("/", async (req, res) => {
       return res.status(400).send("Missing folderName or imageUrls.");
     }
 
-    const uploadedPhotoIds = [];
-    for (let i = 0; i < imageUrls.length; i++) {
-      const photoId = await uploadPhoto(imageUrls[i], `${folderName} – Photo ${i + 1}`);
-      uploadedPhotoIds.push(photoId);
+    // Check if album already exists
+    let albumId = await getOrCreateAlbum(folderName);
+    let existingTags = new Map();
+
+    if (albumId) {
+      existingTags = await getAlbumTags(albumId);
     }
 
-    const albumId = await createAlbum(folderName, uploadedPhotoIds[0]);
+    const uploadedPhotoIds = [];
 
-    for (let i = 1; i < uploadedPhotoIds.length; i++) {
-      await addPhotoToAlbum(albumId, uploadedPhotoIds[i]);
+    for (let i = 0; i < imageUrls.length; i++) {
+      const url = imageUrls[i];
+      const urlHash = hashUrl(url);
+      const machineTag = `automation:urlhash=${urlHash}`;
+
+      if (existingTags.has(machineTag)) {
+        console.log(`Skipping duplicate image: ${url}`);
+        continue;
+      }
+
+      const { id: photoId } = await uploadPhoto(url, `${folderName} – Photo ${i + 1}`, urlHash);
+      uploadedPhotoIds.push(photoId);
+
+      if (!albumId && uploadedPhotoIds.length === 1) {
+        albumId = await createAlbum(folderName, photoId);
+        existingTags = new Map(); // reset since new album
+      } else {
+        await addPhotoToAlbum(albumId, photoId);
+      }
     }
 
     res.status(200).send({
