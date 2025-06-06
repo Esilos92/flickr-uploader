@@ -16,8 +16,6 @@ const { upload, flickr } = createFlickr({
 
 const userId = process.env.FLICKR_USER_ID;
 
-const { flickr, upload } = createFlickr(flickrAuth);
-
 const app = express();
 const uploadMiddleware = multer({ dest: tmpdir() });
 
