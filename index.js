@@ -1,101 +1,103 @@
-// index.js
 import express from "express";
 import multer from "multer";
-import axios from "axios";
-import FormData from "form-data";
 import { createFlickr } from "flickr-sdk";
-import { resolve } from "path";
-import fs from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
-import { v4 as uuidv4 } from "uuid";
+import { join, parse } from "path";
+import { writeFile } from "fs/promises";
+import fetch from "node-fetch";
+import { unlink } from "fs/promises";
+
+// Flickr credentials (replace with your actual secrets)
+const flickrAuth = {
+  consumerKey: process.env.FLICKR_API_KEY,
+  consumerSecret: process.env.FLICKR_API_SECRET,
+  oauthToken: process.env.FLICKR_OAUTH_TOKEN,
+  oauthTokenSecret: process.env.FLICKR_OAUTH_TOKEN_SECRET,
+};
+
+const userId = process.env.FLICKR_USER_ID;
+
+const { flickr, upload } = createFlickr(flickrAuth);
 
 const app = express();
-const upload = multer();
-const PORT = process.env.PORT || 3000;
+const uploadMiddleware = multer({ dest: tmpdir() });
 
-const {
-  FLICKR_CONSUMER_KEY,
-  FLICKR_CONSUMER_SECRET,
-  FLICKR_OAUTH_TOKEN,
-  FLICKR_OAUTH_TOKEN_SECRET,
-  FLICKR_USER_ID
-} = process.env;
+app.use(express.json());
 
-const { upload: flickrUpload, flickr } = createFlickr({
-  consumerKey: FLICKR_CONSUMER_KEY,
-  consumerSecret: FLICKR_CONSUMER_SECRET,
-  oauthToken: FLICKR_OAUTH_TOKEN,
-  oauthTokenSecret: FLICKR_OAUTH_TOKEN_SECRET,
-});
-
-// Helper: Get all albums for the authenticated user
 async function getAlbums() {
-  const res = await flickr("flickr.photosets.getList", { user_id: FLICKR_USER_ID });
-  return res.photosets.photoset;
+  const res = await flickr("flickr.photosets.getList", { user_id: userId });
+  return res.photosets.photoset.map((set) => ({
+    id: set.id,
+    title: set.title._content,
+  }));
 }
 
-// Helper: Find or create album
-async function findOrCreateAlbum(title, primaryPhotoId) {
+async function findOrCreateAlbum(albumTitle, primaryPhotoId) {
   const albums = await getAlbums();
-  const match = albums.find((set) => set.title._content === title);
-  if (match) return match.id;
+  const existingAlbum = albums.find((a) => a.title === albumTitle);
 
-  const { photoset } = await flickr("flickr.photosets.create", {
-    title,
+  if (existingAlbum) {
+    return existingAlbum.id;
+  }
+
+  const res = await flickr("flickr.photosets.create", {
+    title: albumTitle,
     primary_photo_id: primaryPhotoId,
   });
-  return photoset.id;
+
+  return res.photoset.id;
+}
+
+async function uploadPhotoFromUrl(imageUrl, title, albumTitle) {
+  const response = await fetch(imageUrl);
+  if (!response.ok) throw new Error("Failed to fetch image from URL");
+
+  const buffer = await response.buffer();
+  const tempFilePath = join(tmpdir(), title);
+  await writeFile(tempFilePath, buffer);
+
+  try {
+    const photoId = await upload(tempFilePath, { title });
+    const albumId = await findOrCreateAlbum(albumTitle, photoId);
+
+    await flickr("flickr.photosets.addPhoto", {
+      photoset_id: albumId,
+      photo_id: photoId,
+    });
+
+    return { success: true, photoId, albumId };
+  } finally {
+    await unlink(tempFilePath);
+  }
 }
 
 // Health check
-app.get("/", (req, res) => {
-  res.json({ status: "Flickr uploader is running." });
+app.get("/", (_req, res) => {
+  res.send("Flickr uploader running");
 });
 
-// Upload endpoint
-app.post("/upload", upload.array("images"), async (req, res) => {
+app.post("/upload", uploadMiddleware.none(), async (req, res) => {
   try {
-    const { eventName, albumName } = req.body;
-    const images = req.files;
+    const { imageUrl, albumPath } = req.body;
 
-    if (!images || images.length === 0) {
-      return res.status(400).json({ error: "No images uploaded." });
+    if (!imageUrl || !albumPath) {
+      return res.status(400).json({ error: "Missing imageUrl or albumPath" });
     }
 
-    const albumTitle = `${eventName} – ${albumName}`;
-    const uploadedPhotoIds = [];
+    // Parse album path into event and album names
+    const parts = albumPath.split("/").filter(Boolean);
+    const eventName = parts[0] || "Uncategorized Event";
+    const albumName = parts[1] || "General";
 
-    for (const file of images) {
-      const tempPath = join(tmpdir(), uuidv4());
-      fs.writeFileSync(tempPath, file.buffer);
+    const title = parse(imageUrl).base;
 
-      const photoId = await flickrUpload(tempPath, {
-        title: file.originalname,
-        tags: `${eventName} ${albumName}`,
-      });
+    const result = await uploadPhotoFromUrl(imageUrl, title, `${eventName} – ${albumName}`);
 
-      uploadedPhotoIds.push(photoId);
-      fs.unlinkSync(tempPath);
-    }
-
-    const albumId = await findOrCreateAlbum(albumTitle, uploadedPhotoIds[0]);
-
-    // Add photos to album
-    for (let i = 1; i < uploadedPhotoIds.length; i++) {
-      await flickr("flickr.photosets.addPhoto", {
-        photoset_id: albumId,
-        photo_id: uploadedPhotoIds[i],
-      });
-    }
-
-    res.json({ success: true, albumId, photoIds: uploadedPhotoIds });
-  } catch (error) {
-    console.error("Upload error:", error);
-    res.status(500).json({ error: error.message });
+    res.json({ message: "Photo uploaded", result });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+export default app;
