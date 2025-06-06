@@ -1,7 +1,7 @@
 // index.js — Flickr SDK 7.0.0-beta.9 compliant version
 
 import express from "express";
-import Flickr from "flickr-sdk";
+import { Flickr } from "flickr-sdk"; // ✅ Correct for v7.0.0-beta.9
 import axios from "axios";
 import path from "path";
 import FormData from "form-data";
