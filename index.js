@@ -3,9 +3,6 @@ import express from 'express';
 import axios from 'axios';
 import FormData from 'form-data';
 import { OAuth } from 'oauth';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const app = express();
 app.use(express.json());
