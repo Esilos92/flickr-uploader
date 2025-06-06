@@ -12,6 +12,6 @@
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
     "form-data": "^4.0.0",
-    "flickr-sdk": "^3.14.0"
+    "flickr-sdk": "^3.12.0"
   }
 }
