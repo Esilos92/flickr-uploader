@@ -1,5 +1,5 @@
 {
-  "name": "flickr-upload-api",
+  "name": "flickr-uploader",
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
@@ -9,7 +9,8 @@
   "dependencies": {
     "axios": "^1.6.8",
     "express": "^4.19.2",
+    "form-data": "^4.0.0",
     "flickr-sdk": "7.0.0-beta.9",
-    "form-data": "^4.0.0"
+    "oauth-1.0a": "^2.2.6"
   }
 }
