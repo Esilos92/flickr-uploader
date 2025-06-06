@@ -11,7 +11,7 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-app.get('/', (req, res) => {
+app.get("/", (req, res) => {
   res.send("✅ Flickr Upload API is running.");
 });
 
@@ -45,7 +45,7 @@ async function getAlbumIdByTitle(title) {
   const response = await axios.get(url, { headers, params });
   if (response.data.stat !== "ok") throw new Error("Failed to fetch album list.");
   const albums = response.data.photosets.photoset;
-  const match = albums.find(ps => ps.title._content === title);
+  const match = albums.find((ps) => ps.title._content === title);
   return match ? match.id : null;
 }
 
@@ -79,12 +79,15 @@ async function uploadPhotoFromUrl(url, title, tags) {
 
   const headers = form.getHeaders();
 
-  // ⚠️ This is the fix: include all non-binary form fields in OAuth signature
   const request_data = {
     url: "https://up.flickr.com/services/upload/",
     method: "POST",
-    data: { title, tags },
+    data: {
+      title,
+      tags,
+    },
   };
+
   const oauthHeaders = oauth.toHeader(
     oauth.authorize(request_data, {
       key: flickrAccessToken,
@@ -93,7 +96,10 @@ async function uploadPhotoFromUrl(url, title, tags) {
   );
 
   const fullHeaders = { ...headers, ...oauthHeaders };
-  const uploadResponse = await axios.post(request_data.url, form, { headers: fullHeaders });
+
+  const uploadResponse = await axios.post(request_data.url, form, {
+    headers: fullHeaders,
+  });
   const parsed = new URLSearchParams(uploadResponse.data);
   if (!parsed.get("photoid")) throw new Error("Upload failed");
   return parsed.get("photoid");
