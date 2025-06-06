@@ -1,65 +1,71 @@
-import Flickr from 'flickr-sdk';
+import { Flickr } from 'flickr-sdk';
+import axios from 'axios';
+import FormData from 'form-data';
+
+const flickr = new Flickr(
+  process.env.FLICKR_ACCESS_TOKEN,
+  process.env.FLICKR_ACCESS_SECRET
+);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests allowed' });
   }
 
-  const { dropboxUrl, albumTitle } = req.body;
+  const { dropboxUrl, title = 'Untitled', description = '', albumTitle = 'Default Album' } = req.body;
 
   if (!dropboxUrl || !albumTitle) {
     return res.status(400).json({ error: 'Missing dropboxUrl or albumTitle' });
   }
 
-  const flickr = new Flickr({
-    apiKey: process.env.FLICKR_API_KEY,
-    apiSecret: process.env.FLICKR_API_SECRET,
-    accessToken: process.env.FLICKR_ACCESS_TOKEN,
-    accessTokenSecret: process.env.FLICKR_ACCESS_TOKEN_SECRET,
-  });
-
   try {
-    // Upload photo from Dropbox URL
-    const uploadResponse = await flickr.upload({
-      photo: dropboxUrl,
-      is_public: 0,
-      title: albumTitle,
+    // Fetch image stream from Dropbox
+    const imageResponse = await axios.get(dropboxUrl, { responseType: 'stream' });
+
+    const form = new FormData();
+    form.append('photo', imageResponse.data, { filename: 'upload.jpg' });
+    form.append('title', title);
+    form.append('description', description);
+    form.append('is_public', 0);
+    form.append('hidden', 2); // prevents it from appearing publicly in searches/feed
+
+    // Upload the photo
+    const uploadResponse = await flickr.photos.upload(form, {
+      headers: form.getHeaders(),
     });
 
     const photoId = uploadResponse.body.photoid._content;
 
-    // Get list of existing albums
-    const albums = await flickr.photosets.getList({ user_id: 'me' });
+    // Check for existing album
+    const albums = await flickr.photosets.getList();
+    let targetAlbum = albums.body.photosets.photoset.find(set => set.title._content === albumTitle);
 
-    let existingAlbum = albums.body.photosets.photoset.find(
-      (set) => set.title._content === albumTitle
-    );
-
-    let albumId;
-
-    if (existingAlbum) {
-      albumId = existingAlbum.id;
-    } else {
-      const createAlbum = await flickr.photosets.create({
+    // Create album if needed
+    if (!targetAlbum) {
+      const albumRes = await flickr.photosets.create({
         title: albumTitle,
         primary_photo_id: photoId,
       });
-      albumId = createAlbum.body.photoset.id;
+      targetAlbum = albumRes.body.photoset;
+    } else {
+      // Add photo to existing album
+      await flickr.photosets.addPhoto({
+        photoset_id: targetAlbum.id,
+        photo_id: photoId,
+      });
     }
-
-    // Add photo to the album
-    await flickr.photosets.addPhoto({
-      photoset_id: albumId,
-      photo_id: photoId,
-    });
 
     return res.status(200).json({
       success: true,
-      message: 'Photo uploaded and added to album',
       photoId,
-      albumId,
+      albumId: targetAlbum.id,
+      albumTitle: targetAlbum.title._content,
     });
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('UPLOAD FAILED:', err?.response?.data || err?.message || err);
+    return res.status(500).json({
+      error: 'Upload failed',
+      detail: err?.response?.data || err?.message || 'Unknown error',
+    });
   }
 }
