@@ -78,8 +78,13 @@ async function uploadPhotoFromUrl(url, title, tags) {
   form.append("photo", response.data, { filename: title });
 
   const headers = form.getHeaders();
-  const signedUrl = "https://up.flickr.com/services/upload/";
-  const request_data = { url: signedUrl, method: "POST" };
+
+  // ⚠️ This is the fix: include all non-binary form fields in OAuth signature
+  const request_data = {
+    url: "https://up.flickr.com/services/upload/",
+    method: "POST",
+    data: { title, tags },
+  };
   const oauthHeaders = oauth.toHeader(
     oauth.authorize(request_data, {
       key: flickrAccessToken,
@@ -88,7 +93,7 @@ async function uploadPhotoFromUrl(url, title, tags) {
   );
 
   const fullHeaders = { ...headers, ...oauthHeaders };
-  const uploadResponse = await axios.post(signedUrl, form, { headers: fullHeaders });
+  const uploadResponse = await axios.post(request_data.url, form, { headers: fullHeaders });
   const parsed = new URLSearchParams(uploadResponse.data);
   if (!parsed.get("photoid")) throw new Error("Upload failed");
   return parsed.get("photoid");
