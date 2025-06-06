@@ -6,29 +6,29 @@ const Flickr = require("flickr-sdk");
 const app = express();
 app.use(express.json());
 
-// Flickr OAuth plugin
-const flickr = new Flickr(Flickr.OAuth.createPlugin(
-  process.env.FLICKR_API_KEY,
-  process.env.FLICKR_API_SECRET,
-  process.env.FLICKR_ACCESS_TOKEN,
-  process.env.FLICKR_ACCESS_SECRET
-));
+// Correct auth method from current docs
+const { upload, photosets } = Flickr.createFlickr({
+  consumerKey: process.env.FLICKR_API_KEY,
+  consumerSecret: process.env.FLICKR_API_SECRET,
+  oauthToken: process.env.FLICKR_ACCESS_TOKEN,
+  oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET,
+});
 
-// Upload a single photo
+// Upload photo from URL
 async function uploadPhoto(photoUrl, title = "Untitled") {
-  const response = await axios.get(photoUrl, { responseType: "stream" });
+  const res = await axios.get(photoUrl, { responseType: "stream" });
 
-  const uploadResponse = await flickr.upload({
-    photo: response.data,
+  const uploadResponse = await upload({
+    photo: res.data,
     title,
   });
 
   return uploadResponse.body.photoid._content;
 }
 
-// Create album with primary photo
+// Create album
 async function createAlbum(title, primaryPhotoId) {
-  const response = await flickr.photosets.create({
+  const response = await photosets.create({
     title,
     primary_photo_id: primaryPhotoId,
   });
@@ -38,13 +38,13 @@ async function createAlbum(title, primaryPhotoId) {
 
 // Add photo to album
 async function addPhotoToAlbum(photosetId, photoId) {
-  await flickr.photosets.addPhoto({
+  await photosets.addPhoto({
     photoset_id: photosetId,
     photo_id: photoId,
   });
 }
 
-// Upload handler
+// Main upload endpoint
 app.post("/", async (req, res) => {
   try {
     const { folderName, imageUrls } = req.body;
