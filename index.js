@@ -1,150 +1,67 @@
-// index.js — SDK-free Flickr album check + upload with homepage route
+// index.js — Flickr SDK (beta) upload handler with album check and JSON response
 
-import axios from "axios";
-import OAuth from "oauth-1.0a";
-import crypto from "crypto";
-import FormData from "form-data";
-import fs from "fs";
-import path from "path";
 import express from "express";
+import Flickr from "flickr-sdk";
+import axios from "axios";
+import FormData from "form-data";
+import path from "path";
 
 const app = express();
 app.use(express.json());
 
-app.get("/", (req, res) => {
+const flickr = new Flickr(Flickr.OAuth.createPlugin(
+  process.env.FLICKR_API_KEY,
+  process.env.FLICKR_API_SECRET,
+  process.env.FLICKR_ACCESS_TOKEN,
+  process.env.FLICKR_ACCESS_SECRET
+));
+
+app.get("/", (_, res) => {
   res.send("✅ Flickr Upload API is running.");
 });
 
-const flickrKey = process.env.FLICKR_API_KEY;
-const flickrSecret = process.env.FLICKR_API_SECRET;
-const flickrAccessToken = process.env.FLICKR_ACCESS_TOKEN;
-const flickrAccessSecret = process.env.FLICKR_ACCESS_SECRET;
-
-const oauth = new OAuth({
-  consumer: { key: flickrKey, secret: flickrSecret },
-  signature_method: "HMAC-SHA1",
-  hash_function(base_string, key) {
-    return crypto.createHmac("sha1", key).update(base_string).digest("base64");
-  },
-});
-
-async function getAlbumIdByTitle(title) {
-  const url = "https://api.flickr.com/services/rest/";
-  const params = {
-    method: "flickr.photosets.getList",
-    format: "json",
-    nojsoncallback: 1,
-  };
-  const request_data = { url, method: "GET", data: params };
-  const headers = oauth.toHeader(
-    oauth.authorize(request_data, {
-      key: flickrAccessToken,
-      secret: flickrAccessSecret,
-    })
-  );
-  const response = await axios.get(url, { headers, params });
-  if (response.data.stat !== "ok") throw new Error("Failed to fetch album list.");
-  const albums = response.data.photosets.photoset;
-  const match = albums.find((ps) => ps.title._content === title);
-  return match ? match.id : null;
-}
-
-async function createAlbum(title, primaryPhotoId) {
-  const url = "https://api.flickr.com/services/rest/";
-  const params = {
-    method: "flickr.photosets.create",
-    title,
-    primary_photo_id: primaryPhotoId,
-    format: "json",
-    nojsoncallback: 1,
-  };
-  const request_data = { url, method: "POST", data: params };
-  const headers = oauth.toHeader(
-    oauth.authorize(request_data, {
-      key: flickrAccessToken,
-      secret: flickrAccessSecret,
-    })
-  );
-  const response = await axios.post(url, null, { headers, params });
-  if (response.data.stat !== "ok") throw new Error("Failed to create album.");
-  return response.data.photoset.id;
-}
-
-async function uploadPhotoFromUrl(url, title, tags) {
-  const response = await axios.get(url, { responseType: "arraybuffer" });
-  const form = new FormData();
-  form.append("title", title);
-  form.append("tags", tags);
-  form.append("photo", response.data, { filename: title });
-
-  const headers = form.getHeaders();
-
-  const request_data = {
-    url: "https://up.flickr.com/services/upload/",
-    method: "POST",
-    data: {}, // <-- FIX: do NOT sign with form fields
-  };
-
-  const oauthHeaders = oauth.toHeader(
-    oauth.authorize(request_data, {
-      key: flickrAccessToken,
-      secret: flickrAccessSecret,
-    })
-  );
-
-  const fullHeaders = { ...headers, ...oauthHeaders };
-
-  const uploadResponse = await axios.post(request_data.url, form, {
-    headers: fullHeaders,
-  });
-
-  const parsed = new URLSearchParams(uploadResponse.data);
-  if (!parsed.get("photoid")) throw new Error("Upload failed");
-  return parsed.get("photoid");
-}
-
 app.post("/upload", async (req, res) => {
-  const { albumTitle, imageUrls, tags } = req.body;
+  const { albumTitle, imageUrls = [], tags = "" } = req.body;
+
+  if (!Array.isArray(imageUrls)) {
+    return res.status(400).json({ error: "imageUrls must be an array." });
+  }
+
   try {
+    // Get existing photosets
+    const listResponse = await flickr.photosets.getList();
+    const existing = listResponse.body.photosets.photoset;
+    const album = existing.find(ps => ps.title._content === albumTitle);
+
+    let albumId = album?.id ?? null;
     const uploadedIds = [];
-    for (const imageUrl of imageUrls) {
-      const title = path.basename(imageUrl);
-      const id = await uploadPhotoFromUrl(imageUrl, title, tags);
-      uploadedIds.push(id);
-    }
 
-    let albumId = await getAlbumIdByTitle(albumTitle);
-    if (!albumId) {
-      albumId = await createAlbum(albumTitle, uploadedIds[0]);
-    }
+    for (let i = 0; i < imageUrls.length; i++) {
+      const url = imageUrls[i];
+      const title = path.basename(url);
 
-    for (let i = 1; i < uploadedIds.length; i++) {
-      await axios.post("https://api.flickr.com/services/rest/", null, {
-        params: {
-          method: "flickr.photosets.addPhoto",
+      const imageResp = await axios.get(url, { responseType: "stream" });
+      const form = new FormData();
+      form.append("photo", imageResp.data);
+      form.append("title", title);
+      form.append("tags", tags);
+
+      const uploadResp = await flickr.upload(form);
+      const photoId = uploadResp.body.photoid._content;
+      uploadedIds.push(photoId);
+
+      if (!albumId && i === 0) {
+        const createResp = await flickr.photosets.create({
+          title: albumTitle,
+          primary_photo_id: photoId,
+        });
+        albumId = createResp.body.photoset.id;
+      } else if (albumId && i !== 0) {
+        await flickr.photosets.addPhoto({
           photoset_id: albumId,
-          photo_id: uploadedIds[i],
-          format: "json",
-          nojsoncallback: 1,
-        },
-        headers: oauth.toHeader(
-          oauth.authorize(
-            {
-              url: "https://api.flickr.com/services/rest/",
-              method: "POST",
-              data: {
-                method: "flickr.photosets.addPhoto",
-                photoset_id: albumId,
-                photo_id: uploadedIds[i],
-              },
-            },
-            {
-              key: flickrAccessToken,
-              secret: flickrAccessSecret,
-            }
-          )
-        ),
-      });
+          photo_id: photoId,
+        });
+      }
     }
 
     res.json({ success: true, albumId });
