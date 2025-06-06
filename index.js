@@ -1,11 +1,12 @@
-import express from "express";
-import axios from "axios";
-import FormData from "form-data";
-import Flickr from "flickr-sdk";
+const express = require("express");
+const axios = require("axios");
+const FormData = require("form-data");
+const Flickr = require("flickr-sdk");
 
 const app = express();
 app.use(express.json());
 
+// Flickr OAuth plugin
 const flickr = new Flickr(Flickr.OAuth.createPlugin(
   process.env.FLICKR_API_KEY,
   process.env.FLICKR_API_SECRET,
@@ -15,17 +16,17 @@ const flickr = new Flickr(Flickr.OAuth.createPlugin(
 
 // Upload a single photo
 async function uploadPhoto(photoUrl, title = "Untitled") {
-  const res = await axios.get(photoUrl, { responseType: "stream" });
+  const response = await axios.get(photoUrl, { responseType: "stream" });
 
   const uploadResponse = await flickr.upload({
-    photo: res.data,
+    photo: response.data,
     title,
   });
 
   return uploadResponse.body.photoid._content;
 }
 
-// Create a new album
+// Create album with primary photo
 async function createAlbum(title, primaryPhotoId) {
   const response = await flickr.photosets.create({
     title,
@@ -35,7 +36,7 @@ async function createAlbum(title, primaryPhotoId) {
   return response.body.photoset.id;
 }
 
-// Add a photo to an existing album
+// Add photo to album
 async function addPhotoToAlbum(photosetId, photoId) {
   await flickr.photosets.addPhoto({
     photoset_id: photosetId,
@@ -43,6 +44,7 @@ async function addPhotoToAlbum(photosetId, photoId) {
   });
 }
 
+// Upload handler
 app.post("/", async (req, res) => {
   try {
     const { folderName, imageUrls } = req.body;
