@@ -4,7 +4,6 @@ import { createFlickr } from "flickr-sdk";
 import { tmpdir } from "os";
 import { join, parse } from "path";
 import { writeFile } from "fs/promises";
-import fetch from "node-fetch";
 import { unlink } from "fs/promises";
 
 // Flickr credentials (replace with your actual secrets)
