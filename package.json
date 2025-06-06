@@ -1,15 +1,19 @@
 {
-  "name": "flickr-uploader",
+  "name": "flickr-dropbox-uploader",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Uploads images from Dropbox URLs to Flickr, auto-creates albums without duplicates.",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.6.7",
-    "express": "^4.19.2",
-    "form-data": "^4.0.0",
-    "oauth-1.0a": "^2.2.6"
-  }
+    "axios": "^1.6.8",
+    "flickr-sdk": "^3.10.0",
+    "form-data": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "license": "MIT"
 }
