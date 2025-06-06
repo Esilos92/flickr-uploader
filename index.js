@@ -1,62 +1,65 @@
-// index.js
-import express from 'express';
-import axios from 'axios';
-import FormData from 'form-data';
-import { OAuth } from 'oauth';
 import Flickr from 'flickr-sdk';
 
-const app = express();
-app.use(express.json());
-
-const oauth = new OAuth(
-  'https://www.flickr.com/services/oauth/request_token',
-  'https://www.flickr.com/services/oauth/access_token',
-  process.env.FLICKR_API_KEY,
-  process.env.FLICKR_API_SECRET,
-  '1.0',
-  'oob',
-  'HMAC-SHA1'
-);
-
-app.post('/upload', async (req, res) => {
-  const { imageUrl, title = '', description = '' } = req.body;
-
-  if (!imageUrl) {
-    return res.status(400).json({ error: 'Missing imageUrl' });
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Only POST requests allowed' });
   }
+
+  const { dropboxUrl, albumTitle } = req.body;
+
+  if (!dropboxUrl || !albumTitle) {
+    return res.status(400).json({ error: 'Missing dropboxUrl or albumTitle' });
+  }
+
+  const flickr = new Flickr({
+    apiKey: process.env.FLICKR_API_KEY,
+    apiSecret: process.env.FLICKR_API_SECRET,
+    accessToken: process.env.FLICKR_ACCESS_TOKEN,
+    accessTokenSecret: process.env.FLICKR_ACCESS_TOKEN_SECRET,
+  });
 
   try {
-    const imageResponse = await axios.get(imageUrl, { responseType: 'stream' });
+    // Upload photo from Dropbox URL
+    const uploadResponse = await flickr.upload({
+      photo: dropboxUrl,
+      is_public: 0,
+      title: albumTitle,
+    });
 
-    const form = new FormData();
-    form.append('photo', imageResponse.data, { filename: 'image.jpg' });
-    form.append('title', title);
-    form.append('description', description);
-    form.append('is_public', '0'); // private by default
+    const photoId = uploadResponse.body.photoid._content;
 
-    const uploadUrl = 'https://up.flickr.com/services/upload/';
+    // Get list of existing albums
+    const albums = await flickr.photosets.getList({ user_id: 'me' });
 
-    const oauthHeader = oauth._prepareParameters(
-      process.env.FLICKR_ACCESS_TOKEN,
-      process.env.FLICKR_ACCESS_SECRET,
-      'POST',
-      uploadUrl
+    let existingAlbum = albums.body.photosets.photoset.find(
+      (set) => set.title._content === albumTitle
     );
 
-    const headers = {
-      ...form.getHeaders(),
-      Authorization: oauthHeader.map(v => v.join('=')).join(', '),
-    };
+    let albumId;
 
-    const uploadResponse = await axios.post(uploadUrl, form, { headers });
-    res.status(200).send(uploadResponse.data);
-  } catch (err) {
-    console.error('Upload failed:', err.message);
-    res.status(500).json({ error: 'Upload failed', detail: err.message });
+    if (existingAlbum) {
+      albumId = existingAlbum.id;
+    } else {
+      const createAlbum = await flickr.photosets.create({
+        title: albumTitle,
+        primary_photo_id: photoId,
+      });
+      albumId = createAlbum.body.photoset.id;
+    }
+
+    // Add photo to the album
+    await flickr.photosets.addPhoto({
+      photoset_id: albumId,
+      photo_id: photoId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Photo uploaded and added to album',
+      photoId,
+      albumId,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Uploader running on port ${PORT}`);
-});
+}
