@@ -7,11 +7,11 @@ import { writeFile } from "fs/promises";
 import { unlink } from "fs/promises";
 
 // Flickr credentials (replace with your actual secrets)
-const { upload, flickr } = createFlickr({
+const { flickr, upload } = createFlickr({
   consumerKey: process.env.FLICKR_API_KEY,
   consumerSecret: process.env.FLICKR_API_SECRET,
   oauthToken: process.env.FLICKR_ACCESS_TOKEN,
-  oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET
+  oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET,
 });
 
 const userId = process.env.FLICKR_USER_ID;
