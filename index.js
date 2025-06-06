@@ -2,28 +2,27 @@ const express = require("express");
 const axios = require("axios");
 const crypto = require("crypto");
 const FormData = require("form-data");
-const { Upload, Photosets } = require("flickr-sdk");
+const { createFlickr } = require("flickr-sdk");
 
 const app = express();
 app.use(express.json());
 
-// ✅ Directly initialize Upload and Photosets clients with OAuth config
-const auth = {
+// ✅ Correctly create Flickr client using OAuth 1.0
+const flickr = createFlickr({
   consumerKey: process.env.FLICKR_API_KEY,
   consumerSecret: process.env.FLICKR_API_SECRET,
   oauthToken: process.env.FLICKR_ACCESS_TOKEN,
   oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET,
-};
+});
 
-const upload = new Upload(auth);
-const photosets = new Photosets(auth);
+const { upload, photosets } = flickr;
 
-// Create a hash of the Dropbox URL for deduplication
+// Generate a hash of the image URL
 function hashUrl(url) {
   return crypto.createHash("md5").update(url).digest("hex");
 }
 
-// Look for an existing album by title
+// Find or return null for an album by title
 async function getOrCreateAlbum(title) {
   const albumList = await photosets.getList();
   const match = albumList.body.photosets.photoset.find(
@@ -32,7 +31,7 @@ async function getOrCreateAlbum(title) {
   return match ? match.id : null;
 }
 
-// Upload a photo and tag with a unique hash
+// Upload a photo with a machine tag
 async function uploadPhoto({ url, title, description }, urlHash) {
   const res = await axios.get(url, { responseType: "stream" });
   const machineTag = `automation:urlhash=${urlHash}`;
@@ -50,7 +49,7 @@ async function uploadPhoto({ url, title, description }, urlHash) {
   };
 }
 
-// Create a new album
+// Create album
 async function createAlbum(title, primaryPhotoId) {
   const response = await photosets.create({
     title,
@@ -59,7 +58,7 @@ async function createAlbum(title, primaryPhotoId) {
   return response.body.photoset.id;
 }
 
-// Add a photo to an album
+// Add photo to album
 async function addPhotoToAlbum(photosetId, photoId) {
   await photosets.addPhoto({
     photoset_id: photosetId,
@@ -67,7 +66,7 @@ async function addPhotoToAlbum(photosetId, photoId) {
   });
 }
 
-// Retrieve machine tags from an album for deduplication
+// Pull deduplication tags from album
 async function getAlbumTags(albumId) {
   const photoList = await photosets.getPhotos({
     photoset_id: albumId,
@@ -86,7 +85,7 @@ async function getAlbumTags(albumId) {
   return tagsMap;
 }
 
-// Main upload endpoint
+// Upload endpoint
 app.post("/", async (req, res) => {
   try {
     const { albumTitle, images } = req.body;
@@ -119,7 +118,7 @@ app.post("/", async (req, res) => {
 
       if (!albumId && uploadedPhotoIds.length === 1) {
         albumId = await createAlbum(albumTitle, photoId);
-        existingTags = new Map();
+        existingTags = new Map(); // reset for new album
       } else {
         await addPhotoToAlbum(albumId, photoId);
       }
