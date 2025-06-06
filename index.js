@@ -9,7 +9,7 @@ const FLICKR_API_SECRET = process.env.FLICKR_API_SECRET;
 const FLICKR_ACCESS_TOKEN = process.env.FLICKR_ACCESS_TOKEN;
 const FLICKR_ACCESS_TOKEN_SECRET = process.env.FLICKR_ACCESS_TOKEN_SECRET;
 
-const flickr = new Flickr(Flickr.OAuth.createPlugin(
+const { upload } = createFlickr({
   FLICKR_API_KEY,
   FLICKR_API_SECRET,
   FLICKR_ACCESS_TOKEN,
