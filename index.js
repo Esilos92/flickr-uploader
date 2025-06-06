@@ -3,6 +3,7 @@ import express from 'express';
 import axios from 'axios';
 import FormData from 'form-data';
 import { OAuth } from 'oauth';
+import Flickr from 'flickr-sdk';
 
 const app = express();
 app.use(express.json());
