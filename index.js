@@ -14,12 +14,12 @@ const { upload, photosets } = Flickr.createFlickr({
   oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET,
 });
 
-// Hash Dropbox URL for deduplication
+// Create a hash of the Dropbox URL for deduplication
 function hashUrl(url) {
   return crypto.createHash("md5").update(url).digest("hex");
 }
 
-// Find an existing album by name
+// Check for an existing album with the same title
 async function getOrCreateAlbum(title) {
   const albumList = await photosets.getList();
   const match = albumList.body.photosets.photoset.find(
@@ -28,15 +28,15 @@ async function getOrCreateAlbum(title) {
   return match ? match.id : null;
 }
 
-// Upload photo and tag with machine tag
-async function uploadPhoto(photoUrl, title, urlHash) {
-  const res = await axios.get(photoUrl, { responseType: "stream" });
-
+// Upload a single photo with title, description, and machine tag
+async function uploadPhoto({ url, title, description }, urlHash) {
+  const res = await axios.get(url, { responseType: "stream" });
   const machineTag = `automation:urlhash=${urlHash}`;
 
   const uploadResponse = await upload({
     photo: res.data,
-    title,
+    title: title || "Untitled",
+    description: description || "",
     tags: machineTag,
   });
 
@@ -46,7 +46,7 @@ async function uploadPhoto(photoUrl, title, urlHash) {
   };
 }
 
-// Create new album
+// Create a new album
 async function createAlbum(title, primaryPhotoId) {
   const response = await photosets.create({
     title,
@@ -55,7 +55,7 @@ async function createAlbum(title, primaryPhotoId) {
   return response.body.photoset.id;
 }
 
-// Add photo to album
+// Add photo to existing album
 async function addPhotoToAlbum(photosetId, photoId) {
   await photosets.addPhoto({
     photoset_id: photosetId,
@@ -63,7 +63,7 @@ async function addPhotoToAlbum(photosetId, photoId) {
   });
 }
 
-// Get all automation:urlhash tags from an album
+// Get all hash tags in album for deduplication
 async function getAlbumTags(albumId) {
   const photoList = await photosets.getPhotos({
     photoset_id: albumId,
@@ -85,14 +85,13 @@ async function getAlbumTags(albumId) {
 // Main upload endpoint
 app.post("/", async (req, res) => {
   try {
-    const { folderName, imageUrls } = req.body;
+    const { albumTitle, images } = req.body;
 
-    if (!folderName || !Array.isArray(imageUrls) || imageUrls.length === 0) {
-      return res.status(400).send("Missing folderName or imageUrls.");
+    if (!albumTitle || !Array.isArray(images) || images.length === 0) {
+      return res.status(400).send("Missing albumTitle or images.");
     }
 
-    // Check if album already exists
-    let albumId = await getOrCreateAlbum(folderName);
+    let albumId = await getOrCreateAlbum(albumTitle);
     let existingTags = new Map();
 
     if (albumId) {
@@ -101,8 +100,8 @@ app.post("/", async (req, res) => {
 
     const uploadedPhotoIds = [];
 
-    for (let i = 0; i < imageUrls.length; i++) {
-      const url = imageUrls[i];
+    for (let i = 0; i < images.length; i++) {
+      const { url, title, description } = images[i];
       const urlHash = hashUrl(url);
       const machineTag = `automation:urlhash=${urlHash}`;
 
@@ -111,12 +110,12 @@ app.post("/", async (req, res) => {
         continue;
       }
 
-      const { id: photoId } = await uploadPhoto(url, `${folderName} – Photo ${i + 1}`, urlHash);
+      const { id: photoId } = await uploadPhoto({ url, title, description }, urlHash);
       uploadedPhotoIds.push(photoId);
 
       if (!albumId && uploadedPhotoIds.length === 1) {
-        albumId = await createAlbum(folderName, photoId);
-        existingTags = new Map(); // reset since new album
+        albumId = await createAlbum(albumTitle, photoId);
+        existingTags = new Map();
       } else {
         await addPhotoToAlbum(albumId, photoId);
       }
@@ -132,6 +131,11 @@ app.post("/", async (req, res) => {
     console.error("Upload error:", err?.response?.data || err.message);
     res.status(500).send("Upload failed.");
   }
+});
+
+// Health check route (optional)
+app.get("/", (_, res) => {
+  res.status(200).send("Flickr uploader is running.");
 });
 
 app.listen(3000, () => {
