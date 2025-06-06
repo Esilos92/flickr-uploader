@@ -2,27 +2,28 @@ const express = require("express");
 const axios = require("axios");
 const crypto = require("crypto");
 const FormData = require("form-data");
-const { createFlickr } = require("flickr-sdk");
+const { Upload, Photosets } = require("flickr-sdk");
 
 const app = express();
 app.use(express.json());
 
-// ✅ Correct usage per official SDK documentation
-const flickr = createFlickr({
+// ✅ Directly initialize Upload and Photosets clients with OAuth config
+const auth = {
   consumerKey: process.env.FLICKR_API_KEY,
   consumerSecret: process.env.FLICKR_API_SECRET,
   oauthToken: process.env.FLICKR_ACCESS_TOKEN,
   oauthTokenSecret: process.env.FLICKR_ACCESS_SECRET,
-});
+};
 
-const { upload, photosets } = flickr;
+const upload = new Upload(auth);
+const photosets = new Photosets(auth);
 
-// Generate a hash of the Dropbox URL for deduplication
+// Create a hash of the Dropbox URL for deduplication
 function hashUrl(url) {
   return crypto.createHash("md5").update(url).digest("hex");
 }
 
-// Find an existing album by title, or return null
+// Look for an existing album by title
 async function getOrCreateAlbum(title) {
   const albumList = await photosets.getList();
   const match = albumList.body.photosets.photoset.find(
@@ -31,7 +32,7 @@ async function getOrCreateAlbum(title) {
   return match ? match.id : null;
 }
 
-// Upload a single photo with metadata and deduplication tag
+// Upload a photo and tag with a unique hash
 async function uploadPhoto({ url, title, description }, urlHash) {
   const res = await axios.get(url, { responseType: "stream" });
   const machineTag = `automation:urlhash=${urlHash}`;
@@ -49,7 +50,7 @@ async function uploadPhoto({ url, title, description }, urlHash) {
   };
 }
 
-// Create a new album with a primary photo
+// Create a new album
 async function createAlbum(title, primaryPhotoId) {
   const response = await photosets.create({
     title,
@@ -58,7 +59,7 @@ async function createAlbum(title, primaryPhotoId) {
   return response.body.photoset.id;
 }
 
-// Add additional photos to an album
+// Add a photo to an album
 async function addPhotoToAlbum(photosetId, photoId) {
   await photosets.addPhoto({
     photoset_id: photosetId,
@@ -66,7 +67,7 @@ async function addPhotoToAlbum(photosetId, photoId) {
   });
 }
 
-// Retrieve all deduplication tags already in the album
+// Retrieve machine tags from an album for deduplication
 async function getAlbumTags(albumId) {
   const photoList = await photosets.getPhotos({
     photoset_id: albumId,
@@ -118,7 +119,7 @@ app.post("/", async (req, res) => {
 
       if (!albumId && uploadedPhotoIds.length === 1) {
         albumId = await createAlbum(albumTitle, photoId);
-        existingTags = new Map(); // start fresh since album is new
+        existingTags = new Map();
       } else {
         await addPhotoToAlbum(albumId, photoId);
       }
@@ -136,7 +137,7 @@ app.post("/", async (req, res) => {
   }
 });
 
-// Optional health check endpoint
+// Optional health check
 app.get("/", (_, res) => {
   res.status(200).send("Flickr uploader is running.");
 });
