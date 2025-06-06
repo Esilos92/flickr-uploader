@@ -1,67 +1,61 @@
-// index.js — Fully Vercel-compatible using flickr-sdk@7.0.0-beta.9
-
-import * as Flickr from 'flickr-sdk';
-import axios from 'axios';
+// index.js
+import { createFlickr } from "flickr-sdk"
 import FormData from 'form-data';
+import fetch from 'node-fetch';
 
-const FLICKR_API_KEY = process.env.FLICKR_API_KEY;
-const FLICKR_API_SECRET = process.env.FLICKR_API_SECRET;
-const FLICKR_ACCESS_TOKEN = process.env.FLICKR_ACCESS_TOKEN;
-const FLICKR_ACCESS_TOKEN_SECRET = process.env.FLICKR_ACCESS_TOKEN_SECRET;
+const flickr = new Flickr({
+  apiKey: process.env.FLICKR_API_KEY,
+  apiSecret: process.env.FLICKR_API_SECRET,
+  oauthToken: process.env.FLICKR_ACCESS_TOKEN,
+  oauthTokenSecret: process.env.FLICKR_ACCESS_TOKEN_SECRET,
+});
 
-const { upload } = createFlickr({
-  FLICKR_API_KEY,
-  FLICKR_API_SECRET,
-  FLICKR_ACCESS_TOKEN,
-  FLICKR_ACCESS_TOKEN_SECRET
-));
-
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Only POST requests allowed' });
+export default async function handler(request, response) {
+  if (request.method !== 'POST') {
+    return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { dropboxUrl, title, description = '', albumTitle = '' } = req.body;
+  const { imageUrl, albumTitle, albumDescription } = request.body;
 
-  if (!dropboxUrl || !albumTitle) {
-    return res.status(400).json({ error: 'Missing dropboxUrl or albumTitle' });
+  if (!imageUrl || !albumTitle) {
+    return response.status(400).json({ error: 'Missing required fields' });
   }
 
   try {
-    const imageResponse = await axios.get(dropboxUrl, { responseType: 'stream' });
-    const form = new FormData();
-    form.append('photo', imageResponse.data, { filename: 'upload.jpg' });
-    form.append('title', title);
-    form.append('description', description);
-    form.append('is_public', '0');
+    // Step 1: Check if album already exists
+    const albums = await flickr.photosets.getList();
+    let existingAlbum = albums.body.photosets.photoset.find(
+      (set) => set.title._content.toLowerCase() === albumTitle.toLowerCase()
+    );
 
-    const uploadResponse = await flickr.request().media('upload', {
-      method: 'POST',
-      body: form,
-      headers: form.getHeaders(),
+    // Step 2: Upload image
+    const uploadResult = await flickr.upload({
+      title: albumTitle,
+      description: 'Uploaded via automation 🔁',
+      photo: imageUrl,
+      is_public: 0,
     });
 
-    const photoId = uploadResponse.body.photoid._content;
+    const photoId = uploadResult.body.photoid._content;
 
-    const albums = await flickr.photosets.getList({ user_id: 'me' });
-    let album = albums.body.photosets.photoset.find(ps => ps.title._content === albumTitle);
-
-    if (!album) {
-      const createRes = await flickr.photosets.create({
+    // Step 3: Create album if it doesn’t exist
+    if (!existingAlbum) {
+      const albumResult = await flickr.photosets.create({
         title: albumTitle,
-        primary_photo_id: photoId
+        description: albumDescription || '',
+        primary_photo_id: photoId,
       });
-      album = createRes.body.photoset;
+      existingAlbum = albumResult.body.photoset;
     } else {
+      // Step 4: Add to existing album
       await flickr.photosets.addPhoto({
-        photoset_id: album.id,
-        photo_id: photoId
+        photoset_id: existingAlbum.id,
+        photo_id: photoId,
       });
     }
 
-    return res.status(200).json({ success: true, photoId, albumId: album.id });
-  } catch (err) {
-    console.error('Upload failed:', err);
-    return res.status(500).json({ error: 'Upload failed', detail: err.message });
+    response.status(200).json({ success: true, photoId });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 }
