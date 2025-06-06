@@ -1,6 +1,6 @@
 // index.js — Fully Vercel-compatible using flickr-sdk@7.0.0-beta.9
 
-import Flickr from 'flickr-sdk';
+import * as Flickr from 'flickr-sdk';
 import axios from 'axios';
 import FormData from 'form-data';
 
