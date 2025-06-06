@@ -51,7 +51,9 @@ async function uploadPhotoFromUrl(imageUrl, title, albumTitle) {
   const response = await fetch(imageUrl);
   if (!response.ok) throw new Error("Failed to fetch image from URL");
 
-  const buffer = await response.buffer();
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
   const tempFilePath = join(tmpdir(), title);
   await writeFile(tempFilePath, buffer);
 
@@ -83,7 +85,6 @@ app.post("/upload", uploadMiddleware.none(), async (req, res) => {
       return res.status(400).json({ error: "Missing imageUrl or albumPath" });
     }
 
-    // Parse album path into event and album names
     const parts = albumPath.split("/").filter(Boolean);
     const eventName = parts[0] || "Uncategorized Event";
     const albumName = parts[1] || "General";
