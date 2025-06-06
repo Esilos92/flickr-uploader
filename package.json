@@ -1,9 +1,9 @@
 {
   "name": "flickr-uploader",
   "version": "1.0.0",
-  "description": "Serverless uploader to Flickr via Vercel",
-  "type": "module",
+  "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
@@ -11,13 +11,7 @@
     "axios": "^1.6.8",
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
-    "flickr-sdk": "^3.15.0",
-    "form-data": "^4.0.0"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "MIT"
+    "form-data": "^4.0.0",
+    "flickr-sdk": "^3.14.0"
+  }
 }
