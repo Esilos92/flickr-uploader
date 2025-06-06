@@ -10,6 +10,7 @@
     "axios": "^1.6.7",
     "express": "^4.19.2",
     "form-data": "^4.0.0",
+    "flickr-sdk": "3.10.0",
     "oauth": "^0.9.15"
   },
   "engines": {
