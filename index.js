@@ -7,7 +7,7 @@ const { createFlickr } = require("flickr-sdk");
 const app = express();
 app.use(express.json());
 
-// ✅ Correctly create Flickr client using OAuth 1.0
+// ✅ SDK-compliant Flickr client creation
 const flickr = createFlickr({
   consumerKey: process.env.FLICKR_API_KEY,
   consumerSecret: process.env.FLICKR_API_SECRET,
@@ -17,21 +17,27 @@ const flickr = createFlickr({
 
 const { upload, photosets } = flickr;
 
-// Generate a hash of the image URL
+// ✅ DEBUG LOGGING: Check what modules were returned
+console.log("✅ Flickr SDK modules loaded:", Object.keys(flickr));
+
+// ✅ STOP HERE if photosets is missing
+if (!photosets) {
+  console.error("❌ Flickr SDK did not return 'photosets'. Check your SDK version and credentials.");
+}
+
+// Hash function
 function hashUrl(url) {
   return crypto.createHash("md5").update(url).digest("hex");
 }
 
-// Find or return null for an album by title
 async function getOrCreateAlbum(title) {
-  const albumList = await photosets.getList();
+  const albumList = await photosets.getList(); // This line will break if photosets is still undefined
   const match = albumList.body.photosets.photoset.find(
     (a) => a.title._content === title
   );
   return match ? match.id : null;
 }
 
-// Upload a photo with a machine tag
 async function uploadPhoto({ url, title, description }, urlHash) {
   const res = await axios.get(url, { responseType: "stream" });
   const machineTag = `automation:urlhash=${urlHash}`;
@@ -49,7 +55,6 @@ async function uploadPhoto({ url, title, description }, urlHash) {
   };
 }
 
-// Create album
 async function createAlbum(title, primaryPhotoId) {
   const response = await photosets.create({
     title,
@@ -58,7 +63,6 @@ async function createAlbum(title, primaryPhotoId) {
   return response.body.photoset.id;
 }
 
-// Add photo to album
 async function addPhotoToAlbum(photosetId, photoId) {
   await photosets.addPhoto({
     photoset_id: photosetId,
@@ -66,7 +70,6 @@ async function addPhotoToAlbum(photosetId, photoId) {
   });
 }
 
-// Pull deduplication tags from album
 async function getAlbumTags(albumId) {
   const photoList = await photosets.getPhotos({
     photoset_id: albumId,
@@ -85,9 +88,12 @@ async function getAlbumTags(albumId) {
   return tagsMap;
 }
 
-// Upload endpoint
 app.post("/", async (req, res) => {
   try {
+    if (!photosets || !upload) {
+      return res.status(500).send("Flickr SDK is missing required modules.");
+    }
+
     const { albumTitle, images } = req.body;
 
     if (!albumTitle || !Array.isArray(images) || images.length === 0) {
@@ -118,7 +124,7 @@ app.post("/", async (req, res) => {
 
       if (!albumId && uploadedPhotoIds.length === 1) {
         albumId = await createAlbum(albumTitle, photoId);
-        existingTags = new Map(); // reset for new album
+        existingTags = new Map();
       } else {
         await addPhotoToAlbum(albumId, photoId);
       }
@@ -136,7 +142,6 @@ app.post("/", async (req, res) => {
   }
 });
 
-// Optional health check
 app.get("/", (_, res) => {
   res.status(200).send("Flickr uploader is running.");
 });
