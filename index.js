@@ -1,14 +1,11 @@
 // index.js — Complete and tested Flickr upload endpoint for Vercel
 
 import express from 'express';
-import dotenv from 'dotenv';
 import crypto from 'crypto';
 import axios from 'axios';
 import FormData from 'form-data';
 import OAuth from 'oauth-1.0a';
 
-// Load environment variables
-dotenv.config();
 
 const app = express();
 app.use(express.json());
