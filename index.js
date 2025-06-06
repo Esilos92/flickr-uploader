@@ -1,11 +1,13 @@
 import express from "express";
-import Flickr from "flickr-sdk";
+import * as FlickrNS from "flickr-sdk";
 import axios from "axios";
 import FormData from "form-data";
 import path from "path";
 
 const app = express();
 app.use(express.json());
+
+const { Flickr } = FlickrNS;
 
 const flickr = new Flickr(Flickr.OAuth.createPlugin(
   process.env.FLICKR_API_KEY,
