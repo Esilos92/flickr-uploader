@@ -1,12 +1,11 @@
 import express from "express";
 import axios from "axios";
 import FormData from "form-data";
-import { Flickr } from "flickr-sdk";
+import Flickr from "flickr-sdk";
 
 const app = express();
 app.use(express.json());
 
-// Setup Flickr OAuth plugin
 const flickr = new Flickr(Flickr.OAuth.createPlugin(
   process.env.FLICKR_API_KEY,
   process.env.FLICKR_API_SECRET,
@@ -14,7 +13,7 @@ const flickr = new Flickr(Flickr.OAuth.createPlugin(
   process.env.FLICKR_ACCESS_SECRET
 ));
 
-// Uploads a single photo from a public URL
+// Upload a single photo
 async function uploadPhoto(photoUrl, title = "Untitled") {
   const res = await axios.get(photoUrl, { responseType: "stream" });
 
@@ -26,7 +25,7 @@ async function uploadPhoto(photoUrl, title = "Untitled") {
   return uploadResponse.body.photoid._content;
 }
 
-// Creates a new album (photoset) with the first uploaded photo
+// Create a new album
 async function createAlbum(title, primaryPhotoId) {
   const response = await flickr.photosets.create({
     title,
@@ -36,7 +35,7 @@ async function createAlbum(title, primaryPhotoId) {
   return response.body.photoset.id;
 }
 
-// Adds a photo to an existing album
+// Add a photo to an existing album
 async function addPhotoToAlbum(photosetId, photoId) {
   await flickr.photosets.addPhoto({
     photoset_id: photosetId,
